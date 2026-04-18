@@ -1,0 +1,9 @@
+build/
+build-tests/
+build-tests-xcode/
+.DS_Store
+.extras/
+.downloads/
+.sdk/
+.tmp/
+build*

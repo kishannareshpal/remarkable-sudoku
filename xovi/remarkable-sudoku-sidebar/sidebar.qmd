@@ -1,0 +1,67 @@
+VERSION 3.27.0.91
+
+AFFECT /qml/device/view/navigator/Navigator.qml
+    TRAVERSE FocusScope
+        LOCATE BEFORE Loader#searchLoader
+        INSERT {
+            property alias appsMenuView: _appsMenuView
+        }
+
+        LOCATE AFTER Loader#searchLoader
+        INSERT {
+            Loader {
+                id: _appsMenuView
+                anchors.fill: parent
+                z: 1000
+                visible: false
+                active: true
+                source: "qrc:/remarkable-sudoku/qml/AppsDrawer.qml"
+            }
+
+            Connections {
+                target: _appsMenuView.item
+
+                function onRequestClose() {
+                    _appsMenuView.visible = false;
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/navigator/Sidebar.qml
+    TRAVERSE DeviceKeyboardNavigationHandler > ColumnLayout#filterColumn
+        LOCATE AFTER ALL
+        INSERT {
+            SidebarFilterItem {
+                id: openApps
+                objectName: "openApps"
+                title: qsTr("Apps")
+                iconSource: "qrc:/ark/icons/storage"
+                active: navigator.appsMenuView.visible
+                enabled: true
+                Layout.preferredHeight: Values.navigatorSidebarItemHeight
+                Layout.preferredWidth: parent.width
+                navigationHandler: root
+
+                onClicked: {
+                    if (navigator.appsMenuView.item) {
+                        navigator.appsMenuView.item.showAppList();
+                    }
+                    navigator.appsMenuView.visible = true;
+                    root.resetFocusIndex();
+                }
+
+                Image {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 28
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 24
+                    height: 24
+                    fillMode: Image.PreserveAspectFit
+                    source: "qrc:/ark/icons/chevron_right"
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT

@@ -1,0 +1,229 @@
+#!/usr/bin/env zsh
+
+set -euo pipefail
+
+readonly repo_root="${0:A:h}"
+readonly image_name="${RM2_DOCKER_IMAGE:-remarkable-sudoku-dev}"
+readonly docker_platform="${DOCKER_PLATFORM:-linux/amd64}"
+readonly sdk_version="${RM2_SDK_VERSION:-3.26.0.68}"
+readonly sdk_env_file="environment-setup-cortexa7hf-neon-remarkable-linux-gnueabi"
+readonly default_sdk_dir="${repo_root}/.sdk/rm2/${sdk_version}"
+
+build_image() {
+  docker build --platform "${docker_platform}" -t "${image_name}" "${repo_root}"
+}
+
+run_in_container() {
+  local shell_command="$1"
+  shift
+
+  docker run --rm -it \
+    --platform "${docker_platform}" \
+    -v "${repo_root}:${repo_root}" \
+    -w "${repo_root}" \
+    "$@" \
+    "${image_name}" \
+    zsh -lc "${shell_command}"
+}
+
+container_sdk_env_path() {
+  local host_sdk_dir="${1:A}"
+
+  if [[ "${host_sdk_dir}" == "${repo_root}"* ]]; then
+    printf '%s/%s' "${host_sdk_dir}" "${sdk_env_file}"
+    return
+  fi
+
+  printf '/sdk/%s' "${sdk_env_file}"
+}
+
+install_sdk() {
+  local installer_path="${1:-}"
+  local target_sdk_dir="${2:-${default_sdk_dir}}"
+
+  if [[ -z "${installer_path}" ]]; then
+    echo "Usage: ./run sdk-install /absolute/path/to/sdk-installer.sh [target-sdk-dir]"
+    exit 1
+  fi
+
+  installer_path="${installer_path:A}"
+  target_sdk_dir="${target_sdk_dir:A}"
+
+  if [[ ! -f "${installer_path}" ]]; then
+    echo "SDK installer not found at ${installer_path}"
+    exit 1
+  fi
+
+  if [[ "${target_sdk_dir}" != "${repo_root}"* ]]; then
+    echo "Target SDK directory must be inside the repository."
+    echo "Use a path under ${repo_root}/.sdk or set no second argument."
+    exit 1
+  fi
+
+  local installer_dir="${installer_path:h}"
+  local installer_name="${installer_path:t}"
+  local container_target_sdk_dir="${target_sdk_dir}"
+  local staging_volume="remarkable-sudoku-sdk-${sdk_version//./-}-$$"
+
+  mkdir -p "${target_sdk_dir}"
+  trap 'docker volume rm -f "${staging_volume}" >/dev/null 2>&1 || true' EXIT
+
+  docker volume create "${staging_volume}" >/dev/null
+
+  docker run --rm \
+    --platform "${docker_platform}" \
+    -v "${installer_dir}:/installer:ro" \
+    -v "${staging_volume}:${container_target_sdk_dir}" \
+    "${image_name}" \
+    zsh -lc "mkdir -p '${container_target_sdk_dir}' && sh /installer/${installer_name} -y -d '${container_target_sdk_dir}'"
+
+  docker run --rm \
+    --platform "${docker_platform}" \
+    -v "${repo_root}:/workspace" \
+    -v "${staging_volume}:/sdk-stage:ro" \
+    "${image_name}" \
+    zsh -lc "rm -rf '/workspace/${target_sdk_dir#${repo_root}/}' && mkdir -p '/workspace/${target_sdk_dir#${repo_root}/}' && rsync -a --no-owner --no-group /sdk-stage/ '/workspace/${target_sdk_dir#${repo_root}/}/'"
+
+  trap - EXIT
+  docker volume rm -f "${staging_volume}" >/dev/null
+}
+
+build_app() {
+  local host_sdk_dir="${RM2_SDK_DIR:-${default_sdk_dir}}"
+  host_sdk_dir="${host_sdk_dir:A}"
+
+  local host_sdk_env="${host_sdk_dir}/${sdk_env_file}"
+
+  if [[ ! -f "${host_sdk_env}" ]]; then
+    echo "SDK environment file not found at ${host_sdk_env}"
+    echo "Install it first with ./run sdk-install <sdk-installer.sh>"
+    exit 1
+  fi
+
+  local container_sdk_env
+  container_sdk_env="$(container_sdk_env_path "${host_sdk_dir}")"
+
+  local -a extra_volumes=()
+  if [[ "${host_sdk_dir}" != "${repo_root}"* ]]; then
+    extra_volumes=(-v "${host_sdk_dir}:/sdk:ro")
+  fi
+
+  run_in_container \
+    "export RM2_SDK_ENV='${container_sdk_env}' && ./scripts/build-rm2.sh" \
+    "${extra_volumes[@]}"
+}
+
+open_shell() {
+  local host_sdk_dir="${RM2_SDK_DIR:-${default_sdk_dir}}"
+  host_sdk_dir="${host_sdk_dir:A}"
+
+  local -a extra_volumes=()
+  local startup='echo "Container ready. Build with ./run build."'
+
+  if [[ -f "${host_sdk_dir}/${sdk_env_file}" ]]; then
+    if [[ "${host_sdk_dir}" != "${repo_root}"* ]]; then
+      extra_volumes=(-v "${host_sdk_dir}:/sdk:ro")
+      startup="source /sdk/${sdk_env_file} && echo 'SDK environment loaded from /sdk'"
+    else
+      startup="source ${host_sdk_dir}/${sdk_env_file} && echo 'SDK environment loaded from repo-mounted .sdk directory'"
+    fi
+  fi
+
+  run_in_container "${startup}; exec zsh" "${extra_volumes[@]}"
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./run image
+  ./run shell
+  ./run sdk-install /path/to/sdk-installer.sh [target-sdk-dir]
+  ./run build
+  ./run xovi-install [local-extension-path]
+  ./run xovi-post-update [local-extension-path]
+  ./run run-device [local-binary-path]
+  ./run screenshot [output-path]
+  ./run stop-device
+
+Environment:
+  DOCKER_PLATFORM   Docker platform to use. Default: linux/amd64
+  RM2_DOCKER_IMAGE  Docker image name. Default: remarkable-sudoku-dev
+  RM2_SDK_VERSION   SDK version directory under .sdk/rm2. Default: 3.26.0.68
+  RM2_SDK_DIR       Existing SDK directory. Defaults to ./.sdk/rm2/$RM2_SDK_VERSION
+EOF
+}
+
+run_device() {
+  local local_binary="${1:-build/remarkable_sudoku}"
+
+  ./scripts/run-rm2.sh "${local_binary}"
+}
+
+install_xovi_launcher() {
+  local local_extension="${1:-build/libremarkable-sudoku-xovi.so}"
+
+  ./scripts/install-xovi-launcher.sh "${local_extension}"
+}
+
+post_update_xovi() {
+  local local_extension="${1:-build/libremarkable-sudoku-xovi.so}"
+
+  ./scripts/xovi-post-update.sh "${local_extension}"
+}
+
+take_screenshot() {
+  local output_path="${1:-}"
+
+  ./scripts/screenshot-rm2.sh "${output_path}"
+}
+
+stop_device() {
+  local host="${RM2_HOST:-root@10.11.99.1}"
+
+  ssh "${host}" "killall remarkable_sudoku >/dev/null 2>&1 || true; systemctl start xochitl"
+}
+
+main() {
+  local command="${1:-}"
+
+  case "${command}" in
+    image)
+      build_image
+      ;;
+    shell)
+      open_shell
+      ;;
+    sdk-install)
+      shift
+      install_sdk "$@"
+      ;;
+    build)
+      build_app
+      ;;
+    xovi-install)
+      shift
+      install_xovi_launcher "$@"
+      ;;
+    xovi-post-update)
+      shift
+      post_update_xovi "$@"
+      ;;
+    run-device)
+      shift
+      run_device "$@"
+      ;;
+    screenshot)
+      shift
+      take_screenshot "$@"
+      ;;
+    stop-device)
+      stop_device
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
