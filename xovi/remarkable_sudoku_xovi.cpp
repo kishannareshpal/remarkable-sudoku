@@ -1,4 +1,5 @@
 #include "app/sudoku_app_controller.h"
+#include "debug/qml_object_inspector.h"
 #include "game/sudoku_game.h"
 
 #include <QtQml/qqml.h>
@@ -21,6 +22,7 @@ extern "C" void _xovi_construct()
     initializeResources();
     qmlRegisterType<SudokuAppController>("RemarkableSudoku", 1, 0, "SudokuAppController");
     qmlRegisterType<SudokuGame>("RemarkableSudoku", 1, 0, "SudokuGame");
+    qmlRegisterType<QmlObjectInspector>("RemarkableSudoku", 1, 0, "QmlObjectInspector");
 }
 
 extern "C" char _xovi_shouldLoad()

@@ -60,6 +60,10 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_APP)
+    add_executable(remarkable_touch_injector
+        src/tools/remarkable_touch_injector.cpp
+    )
+
     find_package(Qt6 REQUIRED COMPONENTS Quick)
 
     qt_standard_project_setup(REQUIRES 6.5)
@@ -107,11 +111,21 @@ if(BUILD_APP)
         xovi/qml/AppsDrawer.qml
         PROPERTIES QT_RESOURCE_ALIAS "AppsDrawer.qml"
     )
+    set_source_files_properties(
+        xovi/qml/SudokuPageHost.qml
+        PROPERTIES QT_RESOURCE_ALIAS "SudokuPageHost.qml"
+    )
+    set_source_files_properties(
+        xovi/qml/InkDebugAppView.qml
+        PROPERTIES QT_RESOURCE_ALIAS "InkDebugAppView.qml"
+    )
 
     add_library(remarkable_sudoku_xovi SHARED
         xovi/remarkable_sudoku_xovi.cpp
         src/app/sudoku_app_controller.cpp
         src/app/sudoku_app_controller.h
+        src/debug/qml_object_inspector.cpp
+        src/debug/qml_object_inspector.h
         src/game/sudoku_game.cpp
         src/game/sudoku_game.h
     )
@@ -123,6 +137,8 @@ if(BUILD_APP)
             src/qml/SudokuMenuView.qml
             src/qml/SudokuView.qml
             xovi/qml/AppsDrawer.qml
+            xovi/qml/SudokuPageHost.qml
+            xovi/qml/InkDebugAppView.qml
     )
 
     qt_add_resources(remarkable_sudoku_xovi remarkable_sudoku_xovi_assets

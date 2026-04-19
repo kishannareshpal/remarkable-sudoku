@@ -91,6 +91,30 @@ When you are done testing, restore the stock UI with:
 ./run stop-device
 ```
 
+### 6. Mirror the full tablet UI to a Mac window
+
+```sh
+./run mirror
+```
+
+The mirror command keeps the tablet-side helper build inside the existing Docker
+cross-build flow, but opens the mirror window on the Mac host. It does four
+things:
+
+- bootstraps a local host-side Python environment with Qt WebEngine on first run
+- downloads and caches the latest `gomarkablestream-RM2-lite` release from GitHub for the tablet-side stream transport
+- uploads that browser streamer together with the small virtual-touch injector binary to the tablet
+- opens a local Qt mirror window on the Mac host, auto-fits it to the tablet aspect ratio, and forwards basic tap or drag input back through the virtual touch device
+
+This is intended as a developer tool for navigation and UI inspection. It is
+not a low-latency handwriting path.
+
+The current mirror path does not depend on the stock reMarkable Screen Share
+feature. `./run mirror` launches `goMarkableStream` on the tablet over SSH,
+embeds its browser client in the Mac window, and reconnects the stream when you
+start a mirrored touch gesture so the full UI stays responsive without requiring
+any tablet-side cloud session.
+
 ## Embedding Sudoku Inside XOVI
 
 This repo ships a version-gated XOVI sidebar patch for reMarkable OS `3.27.0.87`
@@ -174,6 +198,7 @@ Useful overrides:
 - `RM2_XOVI_REUSE_REMOTE_EXTENSION=1` skips the extension upload and reuses the
   already-installed tablet copy
 - `docs/xochitl-ui-debugging.md` documents the hashtab-based workflow for finding `xochitl` UI components and patch targets.
+- `docs/xochitl-low-latency-drawing.md` documents the current reverse-engineered low-latency ink path and tracing workflow inside `xochitl`.
 
 ## Running Without Docker
 
@@ -201,6 +226,7 @@ ctest --test-dir build-tests --output-on-failure
 - `./run xovi-install [local-extension-path]` installs the embedded XOVI extension and restarts `xochitl`.
 - `./run xovi-post-update [local-extension-path]` rebuilds the XOVI hashtab after a tablet firmware update, then reapplies the Sudoku launcher patch.
 - `./run run-device [local-binary-path]` copies the binary to the tablet, stops `xochitl`, launches the app with the e-paper backend, and restores `xochitl` when the app exits.
+- `./run mirror [local-injector-path]` opens a host-side mirror window for the live tablet UI, starts `goMarkableStream` on a high tablet port, and forwards basic tap or drag input through a virtual touch device on the tablet.
 - `./run screenshot [output-path]` saves a PNG of the current `xochitl` screen. The first run enables `framebuffer-spy` and `xovi-message-broker` inside XOVI and restarts `xochitl`.
 - `./run stop-device` stops the app and starts `xochitl` again.
 
@@ -234,9 +260,12 @@ Useful environment variables:
 - `tests/sudoku_board_test.cpp` covers the core board behavior.
 - `scripts/build-rm2.sh` builds against the reMarkable SDK.
 - `scripts/install-xovi-launcher.sh` installs the direct XOVI sidebar launcher on the tablet.
+- `scripts/mirror-rm2.py` bootstraps the host mirror environment, starts `goMarkableStream` on the tablet, and streams touch commands back to the tablet.
 - `scripts/xovi-post-update.sh` repairs the XOVI launcher setup after a tablet firmware update.
 - `scripts/run-rm2.sh` uploads and launches the binary on the tablet.
+- `scripts/trace-rm2-low-latency.sh` restarts `xochitl` with e-paper trace logging so low-latency ink updates can be inspected live.
 - `docs/xochitl-ui-debugging.md` explains how to inspect the live `xochitl` UI surface through the QMLDiff hashtab.
+- `docs/xochitl-low-latency-drawing.md` explains the current understanding of `xochitl`'s low-latency pen update path.
 - `run` provides the Docker-based workflow.
 
 ## License

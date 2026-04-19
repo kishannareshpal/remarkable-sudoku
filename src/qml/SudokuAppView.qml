@@ -6,8 +6,12 @@ Item {
 
     property Item sceneRoot: root
     property color backgroundColor: "#f7f5ef"
+    property bool documentOverlayMode: false
+    property bool boardInteractionEnabled: true
+    readonly property bool showingMenu: controller.showingMenu
 
     signal requestClose()
+    signal requestInkDebug()
 
     function openMenu() {
         controller.showMenu()
@@ -42,6 +46,7 @@ Item {
         sceneRoot: root.sceneRoot
         backgroundColor: root.backgroundColor
         onRequestClose: root.requestClose()
+        onRequestInkDebug: root.requestInkDebug()
     }
 
     SudokuView {
@@ -49,6 +54,9 @@ Item {
         anchors.fill: parent
         visible: !controller.showingMenu
         backgroundColor: root.backgroundColor
+        documentOverlayMode: root.documentOverlayMode
+        boardInteractionEnabled: root.boardInteractionEnabled
+        onBoardInteractionEnabledChanged: root.boardInteractionEnabled = boardInteractionEnabled
         game: controller.game
         sessionController: controller
         sceneRoot: root.sceneRoot

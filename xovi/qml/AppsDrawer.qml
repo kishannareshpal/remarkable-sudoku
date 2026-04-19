@@ -4,13 +4,20 @@ Item {
 
     signal requestClose()
 
-    property bool showingSudoku: false
+    property string currentApp: "menu"
     readonly property var appEntries: [
         {
             title: qsTr("Sudoku"),
             action: "sudoku"
+        },
+        {
+            title: qsTr("Ink Debug"),
+            action: "ink-debug"
         }
     ]
+    readonly property bool showingMenu: root.currentApp === "menu"
+    readonly property bool showingSudoku: root.currentApp === "sudoku"
+    readonly property bool showingInkDebug: root.currentApp === "ink-debug"
     readonly property real panelLeft: 412
     readonly property real bottomInset: 14
     readonly property real panelWidth: 412
@@ -84,12 +91,16 @@ Item {
     }
 
     function showAppList() {
-        root.showingSudoku = false
+        root.currentApp = "menu"
     }
 
     function showSudoku() {
         sudokuHost.openMenu()
-        root.showingSudoku = true
+        root.currentApp = "sudoku"
+    }
+
+    function showInkDebug() {
+        root.currentApp = "ink-debug"
     }
 
     function closeDrawer() {
@@ -105,6 +116,11 @@ Item {
         const entry = root.appEntries[index]
         if (entry.action === "sudoku") {
             root.showSudoku()
+            return
+        }
+
+        if (entry.action === "ink-debug") {
+            root.showInkDebug()
         }
     }
 
@@ -112,6 +128,8 @@ Item {
         anchors.fill: parent
         mouseEnabled: false
         z: 2
+        enabled: root.showingSudoku
+        visible: enabled
 
         touchPoints: [
             TouchPoint { id: primaryTouchPoint }
@@ -125,13 +143,15 @@ Item {
     Item {
         anchors.fill: parent
         z: 0
+        visible: root.showingMenu
 
         TapHandler {
             acceptedButtons: Qt.LeftButton
             acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus
+            enabled: root.showingMenu
 
             onTapped: {
-                if (!root.showingSudoku) {
+                if (root.showingMenu) {
                     root.closeDrawer()
                 }
             }
@@ -145,7 +165,7 @@ Item {
         y: parent.height - height - root.bottomInset
         width: root.panelWidth
         height: root.menuHeight
-        visible: !root.showingSudoku
+        visible: root.showingMenu
         color: "white"
         border.color: "black"
         border.width: root.panelBorderWidth
@@ -199,6 +219,14 @@ Item {
         anchors.fill: parent
         visible: root.showingSudoku
         sceneRoot: root
+        onRequestClose: root.closeDrawer()
+    }
+
+    InkDebugAppView {
+        id: inkDebugHost
+        z: 1
+        anchors.fill: parent
+        visible: root.showingInkDebug
         onRequestClose: root.closeDrawer()
     }
 }

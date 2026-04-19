@@ -7,6 +7,8 @@ Item {
     property var sessionController: null
     property Item sceneRoot: root
     property color backgroundColor: "#f7f5ef"
+    property bool documentOverlayMode: false
+    property bool boardInteractionEnabled: true
     property bool showingElapsedPopup: false
     property string elapsedPopupLabel: "Played for: 0s"
 
@@ -15,6 +17,19 @@ Item {
     readonly property real pageMargin: Math.round(Math.min(width, height) * 0.04)
     readonly property real sectionGap: Math.max(12, Math.round(pageMargin * 0.8))
     readonly property real numberPadGap: Math.max(6, Math.round(pageMargin * 0.18))
+    readonly property bool documentInkMode: root.documentOverlayMode && !root.boardInteractionEnabled
+    readonly property bool fullUiVisible: !root.documentInkMode
+    readonly property int controlInputDevices: root.documentOverlayMode
+        ? PointerDevice.Mouse | PointerDevice.TouchScreen
+        : PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+    readonly property int uiInputDevices: root.documentOverlayMode
+        ? (root.boardInteractionEnabled
+            ? PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+            : PointerDevice.Mouse | PointerDevice.TouchScreen)
+        : PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+    readonly property color boardFillColor: root.documentOverlayMode ? "transparent" : "#fcfbf8"
+    readonly property color givenCellFillColor: root.documentOverlayMode ? "transparent" : "#ece5d4"
+    readonly property color editableCellFillColor: root.documentOverlayMode ? "transparent" : "#fcfbf8"
 
     function currentDifficultyLabel() {
         if (!root.sessionController || !root.sessionController.activeDifficultyLabel) {
@@ -41,7 +56,7 @@ Item {
     }
 
     function handleSceneDrag(scenePosition) {
-        if (game.paused || game.solved) {
+        if (root.documentInkMode || game.paused || game.solved) {
             return
         }
 
@@ -71,6 +86,10 @@ Item {
     }
 
     function handleScenePress(scenePosition) {
+        if (root.documentInkMode) {
+            return
+        }
+
         if (root.itemContainsScenePoint(backButton, scenePosition)) {
             root.closeElapsedPopup()
             root.requestClose()
@@ -164,7 +183,8 @@ Item {
         Item {
             id: headerRow
             width: parent.width
-            height: Math.max(backButton.height, titleColumn.implicitHeight)
+            height: Math.max(backButton.height, titleColumn.implicitHeight, headerControls.height)
+            visible: root.fullUiVisible
 
             Rectangle {
                 id: backButton
@@ -224,7 +244,7 @@ Item {
 
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                    acceptedDevices: root.controlInputDevices
                     onTapped: {
                         root.closeElapsedPopup()
                         root.requestClose()
@@ -234,9 +254,11 @@ Item {
 
             Column {
                 id: titleColumn
-                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.left: backButton.right
+                anchors.leftMargin: root.sectionGap
+                anchors.right: headerControls.left
+                anchors.rightMargin: root.sectionGap
                 anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - ((backButton.width + root.sectionGap) * 2)
                 spacing: Math.max(4, Math.round(root.sectionGap * 0.2))
 
                 Text {
@@ -317,7 +339,7 @@ Item {
 
                             TapHandler {
                                 acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                                acceptedDevices: root.controlInputDevices
                                 onTapped: root.toggleElapsedPopup()
                             }
                         }
@@ -358,70 +380,105 @@ Item {
                 }
             }
 
-            Rectangle {
-                id: pauseButton
+            Row {
+                id: headerControls
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: backButton.width
-                height: backButton.height
-                visible: !game.solved
-                color: game.paused ? "#e3ddd0" : "#f0ede4"
-                border.color: "#111111"
-                border.width: 0
+                spacing: Math.max(8, Math.round(root.sectionGap * 0.35))
+                height: content.controlHeight
 
-                Item {
-                    id: pauseIcon
-                    anchors.centerIn: parent
-                    width: Math.round(parent.width * 0.42)
-                    height: width
-                    readonly property real barWidth: Math.max(4, Math.round(width * 0.24))
-                    readonly property real barGap: Math.max(4, Math.round(width * 0.14))
-                    readonly property real barStartX: Math.round((width - ((barWidth * 2) + barGap)) / 2)
+                Rectangle {
+                    id: interactionModeButton
+                    visible: root.documentOverlayMode
+                    width: Math.max(Math.round(content.controlHeight * 1.7),
+                                    interactionModeLabel.implicitWidth + Math.round(content.controlHeight * 0.7))
+                    height: content.controlHeight
+                    color: root.documentInkMode ? "#111111" : "#f0ede4"
+                    border.color: "#111111"
+                    border.width: 2
 
-                    Rectangle {
-                        x: pauseIcon.barStartX
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: pauseIcon.barWidth
-                        height: parent.height
-                        color: "#111111"
-                        visible: !game.paused
+                    Text {
+                        id: interactionModeLabel
+                        anchors.centerIn: parent
+                        color: root.documentInkMode ? "#fcfbf8" : "#111111"
+                        font.bold: true
+                        font.pixelSize: Math.max(15, Math.round(parent.height * 0.28))
+                        text: root.boardInteractionEnabled ? "Board" : "Ink"
                     }
 
-                    Rectangle {
-                        x: pauseIcon.barStartX + pauseIcon.barWidth + pauseIcon.barGap
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: pauseIcon.barWidth
-                        height: parent.height
-                        color: "#111111"
-                        visible: !game.paused
-                    }
-
-                    Canvas {
-                        id: resumeIcon
-                        anchors.fill: parent
-                        visible: game.paused
-                        onVisibleChanged: requestPaint()
-
-                        onPaint: {
-                            const context = getContext("2d")
-                            context.clearRect(0, 0, width, height)
-                            context.fillStyle = "#111111"
-                            context.beginPath()
-                            context.moveTo(width * 0.18, height * 0.12)
-                            context.lineTo(width * 0.82, height * 0.5)
-                            context.lineTo(width * 0.18, height * 0.88)
-                            context.closePath()
-                            context.fill()
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        acceptedDevices: root.controlInputDevices
+                        onTapped: {
+                            root.closeElapsedPopup()
+                            root.boardInteractionEnabled = !root.boardInteractionEnabled
                         }
                     }
                 }
 
-                TapHandler {
-                    acceptedButtons: Qt.LeftButton
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
-                    onTapped: {
-                        root.closeElapsedPopup()
-                        game.togglePaused()
+                Rectangle {
+                    id: pauseButton
+                    width: backButton.width
+                    height: backButton.height
+                    visible: !game.solved
+                    color: game.paused ? "#e3ddd0" : "#f0ede4"
+                    border.color: "#111111"
+                    border.width: 0
+
+                    Item {
+                        id: pauseIcon
+                        anchors.centerIn: parent
+                        width: Math.round(parent.width * 0.42)
+                        height: width
+                        readonly property real barWidth: Math.max(4, Math.round(width * 0.24))
+                        readonly property real barGap: Math.max(4, Math.round(width * 0.14))
+                        readonly property real barStartX: Math.round((width - ((barWidth * 2) + barGap)) / 2)
+
+                        Rectangle {
+                            x: pauseIcon.barStartX
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: pauseIcon.barWidth
+                            height: parent.height
+                            color: "#111111"
+                            visible: !game.paused
+                        }
+
+                        Rectangle {
+                            x: pauseIcon.barStartX + pauseIcon.barWidth + pauseIcon.barGap
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: pauseIcon.barWidth
+                            height: parent.height
+                            color: "#111111"
+                            visible: !game.paused
+                        }
+
+                        Canvas {
+                            id: resumeIcon
+                            anchors.fill: parent
+                            visible: game.paused
+                            onVisibleChanged: requestPaint()
+
+                            onPaint: {
+                                const context = getContext("2d")
+                                context.clearRect(0, 0, width, height)
+                                context.fillStyle = "#111111"
+                                context.beginPath()
+                                context.moveTo(width * 0.18, height * 0.12)
+                                context.lineTo(width * 0.82, height * 0.5)
+                                context.lineTo(width * 0.18, height * 0.88)
+                                context.closePath()
+                                context.fill()
+                            }
+                        }
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        acceptedDevices: root.controlInputDevices
+                        onTapped: {
+                            root.closeElapsedPopup()
+                            game.togglePaused()
+                        }
                     }
                 }
             }
@@ -441,7 +498,7 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                color: "#fcfbf8"
+                color: root.boardFillColor
                 border.color: "#111111"
                 border.width: board.boardBorderThickness
             }
@@ -467,7 +524,7 @@ Item {
                     width: board.cellSize
                     height: board.cellSize
                     z: selected ? 2 : 0
-                    color: given ? "#ece5d4" : "#fcfbf8"
+                    color: given ? root.givenCellFillColor : root.editableCellFillColor
                     border.color: selected ? "#111111" : "#666666"
                     border.width: selected ? 6 : 1
 
@@ -544,7 +601,8 @@ Item {
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                        acceptedDevices: root.uiInputDevices
+                        enabled: !root.documentInkMode
                         onTapped: {
                             root.closeElapsedPopup()
                             game.selectCell(index)
@@ -588,7 +646,7 @@ Item {
             Rectangle {
                 id: pausedOverlay
                 anchors.fill: parent
-                visible: game.paused
+                visible: root.fullUiVisible && game.paused
                 color: root.backgroundColor
                 z: 5
 
@@ -624,7 +682,8 @@ Item {
 
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                    acceptedDevices: root.uiInputDevices
+                    enabled: !root.documentInkMode
                     onTapped: {
                         root.closeElapsedPopup()
                         game.togglePaused()
@@ -634,6 +693,7 @@ Item {
 
             MultiPointTouchArea {
                 anchors.fill: parent
+                enabled: !root.documentInkMode
                 mouseEnabled: false
                 z: 4
 
@@ -648,6 +708,7 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
+                enabled: !root.documentInkMode
                 z: 4
 
                 function scenePosition() {
@@ -669,13 +730,14 @@ Item {
             height: content.footerHeight
             anchors.bottom: parent.bottom
             anchors.horizontalCenter: parent.horizontalCenter
+            visible: root.fullUiVisible
 
             Item {
                 id: numberPad
                 width: parent.width
                 height: content.controlHeight
                 anchors.top: parent.top
-                visible: !game.solved
+                visible: root.fullUiVisible && !game.solved
 
                 readonly property real buttonWidth: (width - (root.numberPadGap * 8)) / 9
 
@@ -705,7 +767,8 @@ Item {
 
                             TapHandler {
                                 acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                                acceptedDevices: root.uiInputDevices
+                                enabled: !root.documentInkMode
                                 onTapped: {
                                     root.closeElapsedPopup()
                                     game.enterDigit(modelData)
@@ -721,7 +784,7 @@ Item {
                 width: parent.width
                 height: content.controlHeight
                 anchors.bottom: parent.bottom
-                visible: !game.solved
+                visible: root.fullUiVisible && !game.solved
 
                 readonly property real buttonGap: root.numberPadGap
                 readonly property real utilityButtonWidth: Math.max(118, Math.round(width * 0.19))
@@ -768,7 +831,8 @@ Item {
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                        acceptedDevices: root.uiInputDevices
+                        enabled: !root.documentInkMode
                         onTapped: {
                             root.closeElapsedPopup()
                             game.toggleNotesMode()
@@ -820,7 +884,8 @@ Item {
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                        acceptedDevices: root.uiInputDevices
+                        enabled: !root.documentInkMode
                         onTapped: {
                             root.closeElapsedPopup()
                             game.applyHint()
@@ -860,7 +925,8 @@ Item {
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                        acceptedDevices: root.uiInputDevices
+                        enabled: !root.documentInkMode
                         onTapped: {
                             root.closeElapsedPopup()
                             game.clearSelectedCell()
@@ -872,7 +938,7 @@ Item {
             Item {
                 id: solvedFooter
                 anchors.fill: parent
-                visible: game.solved
+                visible: root.fullUiVisible && game.solved
 
                 readonly property real metricGap: Math.max(12, Math.round(root.sectionGap * 0.6))
                 readonly property string playedText: root.sessionController && root.sessionController.resumePlayedText
@@ -992,7 +1058,7 @@ Item {
 
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                        acceptedDevices: root.uiInputDevices
                         onTapped: {
                             root.closeElapsedPopup()
                             root.requestClose()
@@ -1001,11 +1067,40 @@ Item {
                 }
             }
         }
+
+        Rectangle {
+            id: compactInteractionModeButton
+            anchors.top: parent.top
+            anchors.right: parent.right
+            width: Math.max(Math.round(content.controlHeight * 1.7),
+                            compactInteractionModeLabel.implicitWidth + Math.round(content.controlHeight * 0.7))
+            height: content.controlHeight
+            visible: root.documentInkMode
+            color: "#111111"
+            border.color: "#111111"
+            border.width: 2
+            z: 6
+
+            Text {
+                id: compactInteractionModeLabel
+                anchors.centerIn: parent
+                color: "#fcfbf8"
+                font.bold: true
+                font.pixelSize: Math.max(15, Math.round(parent.height * 0.28))
+                text: "Board"
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                acceptedDevices: root.controlInputDevices
+                onTapped: root.boardInteractionEnabled = true
+            }
+        }
     }
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
-        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+        acceptedDevices: root.controlInputDevices
         enabled: root.showingElapsedPopup
 
         onTapped: function(point) {

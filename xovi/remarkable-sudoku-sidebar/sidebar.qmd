@@ -4,25 +4,449 @@ AFFECT /qml/device/view/navigator/Navigator.qml
     TRAVERSE FocusScope
         LOCATE BEFORE Loader#searchLoader
         INSERT {
-            property alias appsMenuView: _appsMenuView
+            property alias sudokuPageView: _sudokuPageView
+            property string remarkableSudokuDocumentId: "__SUDOKU_DOCUMENT_ID__"
+            property bool remarkableSudokuAwaitingDocument: false
+            property int remarkableSudokuActivationAttempts: 0
+
+            function activateRemarkableSudokuDocument() {
+                if (!_sudokuPageView.item
+                    || typeof _sudokuPageView.item.tryActivateLiveDocumentSudoku !== "function") {
+                    return false;
+                }
+
+                const activated = _sudokuPageView.item.tryActivateLiveDocumentSudoku(
+                    root.remarkableSudokuDocumentId);
+
+                if (!activated) {
+                    return false;
+                }
+
+                root.remarkableSudokuAwaitingDocument = false;
+                root.remarkableSudokuActivationAttempts = 0;
+                remarkableSudokuActivationProbe.stop();
+                _sudokuPageView.visible = false;
+                return true;
+            }
+
+            function startRemarkableSudokuActivation() {
+                root.remarkableSudokuAwaitingDocument = true;
+                root.remarkableSudokuActivationAttempts = 0;
+                remarkableSudokuActivationProbe.restart();
+            }
+
+            function openRemarkableSudokuDocument() {
+                try {
+                    if (documentView && documentView.item
+                        && typeof documentView.item.openDocument === "function") {
+                        documentView.item.openDocument(root.remarkableSudokuDocumentId);
+                        return true;
+                    }
+                } catch (error) {
+                    console.log("[RemarkableSudokuXovi] documentView.item.openDocument failed", error);
+                }
+
+                try {
+                    if (typeof root.openDocument === "function") {
+                        root.openDocument(root.remarkableSudokuDocumentId);
+                        return true;
+                    }
+                } catch (error) {
+                    console.log("[RemarkableSudokuXovi] root.openDocument failed", error);
+                }
+
+                console.log(
+                    "[RemarkableSudokuXovi] No document opener accepted Sudoku document",
+                    root.remarkableSudokuDocumentId);
+                return false;
+            }
+
+            function hasRemarkableSudokuDocumentOpen() {
+                return !!documentView
+                    && documentView.visible
+                    && documentView.document
+                    && documentView.document.id === root.remarkableSudokuDocumentId;
+            }
         }
 
         LOCATE AFTER Loader#searchLoader
         INSERT {
             Loader {
-                id: _appsMenuView
+                id: _sudokuPageView
                 anchors.fill: parent
                 z: 1000
                 visible: false
                 active: true
-                source: "qrc:/remarkable-sudoku/qml/AppsDrawer.qml"
+                source: "qrc:/remarkable-sudoku/qml/SudokuPageHost.qml"
             }
 
             Connections {
-                target: _appsMenuView.item
+                target: _sudokuPageView.item
 
                 function onRequestClose() {
-                    _appsMenuView.visible = false;
+                    _sudokuPageView.visible = false;
+                }
+            }
+
+            Connections {
+                target: documentView.item
+                ignoreUnknownSignals: true
+
+                function onDocumentLoaded() {
+                    const loadedDocument = documentView.document
+                    const loadedDocumentId = loadedDocument && loadedDocument.id
+                        ? loadedDocument.id
+                        : ""
+
+                    console.log(
+                        "[RemarkableSudokuXovi] documentLoaded",
+                        loadedDocumentId,
+                        "awaiting=",
+                        root.remarkableSudokuAwaitingDocument)
+
+                    if (loadedDocumentId !== root.remarkableSudokuDocumentId) {
+                        return;
+                    }
+
+                    root.activateRemarkableSudokuDocument();
+
+                    if (root.remarkableSudokuAwaitingDocument) {
+                        root.startRemarkableSudokuActivation();
+                    }
+                }
+            }
+
+            Timer {
+                id: remarkableSudokuActivationProbe
+                interval: 150
+                repeat: true
+                running: false
+
+                onTriggered: {
+                    root.remarkableSudokuActivationAttempts += 1;
+
+                    if (root.activateRemarkableSudokuDocument()) {
+                        return;
+                    }
+
+                    if (!root.remarkableSudokuAwaitingDocument) {
+                        stop();
+                        return;
+                    }
+
+                    if (root.remarkableSudokuActivationAttempts >= 80) {
+                        root.remarkableSudokuAwaitingDocument = false;
+                        console.log(
+                            "[RemarkableSudokuXovi] Sudoku activation probe timed out",
+                            root.remarkableSudokuDocumentId);
+                        stop();
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/DocumentView.qml
+    TRAVERSE ?#root
+        LOCATE BEFORE ALL
+        INSERT {
+            property string remarkableSudokuDocumentId: "__SUDOKU_DOCUMENT_ID__"
+            readonly property bool remarkableSudokuDocumentMatches: !!root.document
+                && root.document.id === root.remarkableSudokuDocumentId
+            property bool remarkableSudokuActive: root.remarkableSudokuDocumentMatches
+            property bool remarkableSudokuBoardInteractionEnabled: true
+            property string remarkableSudokuPanel: "sudoku"
+
+            onRemarkableSudokuDocumentMatchesChanged: {
+                if (root.remarkableSudokuDocumentMatches) {
+                    root.remarkableSudokuBoardInteractionEnabled = true;
+                }
+            }
+        }
+
+        LOCATE AFTER ALL
+        INSERT {
+            Loader {
+                id: remarkableSudokuDocumentPage
+                anchors.fill: parent
+                z: 200000
+                active: root.remarkableSudokuDocumentMatches
+                    && root.remarkableSudokuActive
+                    && root.remarkableSudokuPanel === "sudoku"
+                visible: active && root.remarkableSudokuBoardInteractionEnabled
+                enabled: visible
+                source: "qrc:/remarkable-sudoku/qml/SudokuAppView.qml"
+
+                onLoaded: {
+                    if (!item) {
+                        return;
+                    }
+
+                    item.backgroundColor = "transparent";
+                    item.documentOverlayMode = true;
+                    item.boardInteractionEnabled = root.remarkableSudokuBoardInteractionEnabled;
+                    item.sceneRoot = root;
+                }
+            }
+
+            Connections {
+                target: remarkableSudokuDocumentPage.item
+                ignoreUnknownSignals: true
+
+                function onBoardInteractionEnabledChanged() {
+                    root.remarkableSudokuBoardInteractionEnabled =
+                        !!remarkableSudokuDocumentPage.item.boardInteractionEnabled;
+                }
+
+                function onRequestClose() {
+                    root.remarkableSudokuPanel = "sudoku";
+                    root.remarkableSudokuBoardInteractionEnabled = true;
+
+                    try {
+                        root.close();
+                    } catch (error) {
+                        console.log("[RemarkableSudokuXovi] DocumentView close failed", error);
+                    }
+                }
+
+                function onRequestInkDebug() {
+                    root.remarkableSudokuPanel = "ink-debug";
+                }
+            }
+
+            Rectangle {
+                id: remarkableSudokuDocumentModeButton
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 18
+                anchors.rightMargin: 18
+                z: 200002
+                visible: root.remarkableSudokuDocumentMatches
+                    && root.remarkableSudokuActive
+                    && root.remarkableSudokuPanel === "sudoku"
+                    && !root.remarkableSudokuBoardInteractionEnabled
+                width: Math.max(88, remarkableSudokuDocumentModeLabel.implicitWidth + 34)
+                height: 42
+                radius: 21
+                color: "#111111"
+                border.color: "#111111"
+                border.width: 1
+
+                Text {
+                    id: remarkableSudokuDocumentModeLabel
+                    anchors.centerIn: parent
+                    color: "#fcfbf8"
+                    font.bold: true
+                    font.pixelSize: 18
+                    text: qsTr("Board")
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+
+                    onTapped: {
+                        root.remarkableSudokuBoardInteractionEnabled = true;
+
+                        if (remarkableSudokuDocumentPage.item) {
+                            remarkableSudokuDocumentPage.item.boardInteractionEnabled = true;
+                        }
+                    }
+                }
+            }
+
+            Loader {
+                id: remarkableSudokuInkDebugPage
+                anchors.fill: parent
+                z: 200001
+                active: root.remarkableSudokuDocumentMatches
+                    && root.remarkableSudokuActive
+                    && root.remarkableSudokuPanel === "ink-debug"
+                visible: active
+                source: "qrc:/remarkable-sudoku/qml/InkDebugAppView.qml"
+            }
+
+            Connections {
+                target: remarkableSudokuInkDebugPage.item
+                ignoreUnknownSignals: true
+
+                function onRequestClose() {
+                    root.remarkableSudokuPanel = "sudoku";
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT /qml/device/view/documentview/DeviceSceneView.qml
+    TRAVERSE ?#root[!viewport]
+        LOCATE AFTER ALL
+        INSERT {
+            Rectangle {
+                id: remarkableSudokuScenePatchIndicator
+                objectName: "RemarkableSudokuScenePatchIndicator"
+                z: 200001
+                width: sceneIndicatorLabel.implicitWidth + 34
+                height: 30
+                radius: height / 2
+                color: "#d9e6f5"
+                border.color: "#1d3859"
+                border.width: 1
+                opacity: 0.82
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.topMargin: 20
+                anchors.leftMargin: 20
+                property int probeAttempt: 0
+                property int strokeCount: 0
+                property int gestureCount: 0
+                property var strokeHandlerTarget: null
+                property bool sceneReady: false
+
+                function hasViewport() {
+                    return !!root.viewport;
+                }
+
+                function hasTileManager() {
+                    return !!root.tileManager;
+                }
+
+                function updateIndicator() {
+                    const hasStrokeHandler = !!remarkableSudokuScenePatchIndicator.strokeHandlerTarget;
+
+                    sceneIndicatorLabel.text =
+                        "RS V" + (remarkableSudokuScenePatchIndicator.hasViewport() ? 1 : 0)
+                        + " T" + (remarkableSudokuScenePatchIndicator.hasTileManager() ? 1 : 0)
+                        + " S" + (hasStrokeHandler ? 1 : 0)
+                        + " #" + remarkableSudokuScenePatchIndicator.strokeCount;
+
+                    if (remarkableSudokuScenePatchIndicator.hasViewport()
+                        || remarkableSudokuScenePatchIndicator.hasTileManager()) {
+                        remarkableSudokuScenePatchIndicator.color = "#d8ecd1";
+                        remarkableSudokuScenePatchIndicator.border.color = "#294d25";
+                    } else {
+                        remarkableSudokuScenePatchIndicator.color = "#d9e6f5";
+                        remarkableSudokuScenePatchIndicator.border.color = "#1d3859";
+                    }
+                }
+
+                function refreshTargets() {
+                    if (root.viewport) {
+                        root.viewport.objectName = "RemarkableSudokuViewport";
+                    }
+
+                    if (root.tileManager) {
+                        root.tileManager.objectName = "RemarkableSudokuSceneTileManager";
+                    }
+
+                    if (typeof strokeHandler !== "undefined" && strokeHandler) {
+                        strokeHandler.objectName = "RemarkableSudokuStrokeHandler";
+                        remarkableSudokuScenePatchIndicator.strokeHandlerTarget = strokeHandler;
+                    }
+
+                    remarkableSudokuScenePatchIndicator.updateIndicator();
+                }
+
+                function captureState(label) {
+                    remarkableSudokuScenePatchIndicator.refreshTargets();
+
+                    console.log(
+                        "[RemarkableSudokuXovi] DeviceSceneView",
+                        label,
+                        "attempt=",
+                        remarkableSudokuScenePatchIndicator.probeAttempt,
+                        "pageId=",
+                        root.pageId,
+                        "viewport=",
+                        root.viewport,
+                        "tileManager=",
+                        root.tileManager,
+                        "strokeHandler=",
+                        remarkableSudokuScenePatchIndicator.strokeHandlerTarget,
+                        "notePage=",
+                        root.notePage,
+                        "strokes=",
+                        remarkableSudokuScenePatchIndicator.strokeCount,
+                        "gestures=",
+                        remarkableSudokuScenePatchIndicator.gestureCount
+                    );
+                }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 8
+
+                    Rectangle {
+                        width: 10
+                        height: 10
+                        radius: width / 2
+                        color: "#1d3859"
+                    }
+
+                    Text {
+                        id: sceneIndicatorLabel
+                        text: "RS V0 T0 S0 #0"
+                        color: "#0f1c2b"
+                        font.pixelSize: 15
+                    }
+                }
+
+                Component.onCompleted: {
+                    root.objectName = "RemarkableSudokuPatchedDeviceSceneView";
+                    remarkableSudokuScenePatchIndicator.captureState("patch active");
+                }
+
+                Connections {
+                    target: remarkableSudokuScenePatchIndicator.strokeHandlerTarget
+                    ignoreUnknownSignals: true
+
+                    function onStrokeCompleted(line) {
+                        remarkableSudokuScenePatchIndicator.strokeCount += 1;
+                        remarkableSudokuScenePatchIndicator.updateIndicator();
+
+                        if (remarkableSudokuScenePatchIndicator.strokeCount <= 4
+                            || remarkableSudokuScenePatchIndicator.strokeCount % 5 === 0) {
+                            remarkableSudokuScenePatchIndicator.captureState("strokeCompleted");
+                        }
+                    }
+
+                    function onGestureStarted(kind, payload) {
+                        remarkableSudokuScenePatchIndicator.gestureCount += 1;
+                        remarkableSudokuScenePatchIndicator.captureState("gestureStarted");
+                    }
+                }
+
+                Timer {
+                    interval: 400
+                    running: true
+                    repeat: true
+
+                    onTriggered: {
+                        remarkableSudokuScenePatchIndicator.probeAttempt += 1;
+
+                        if (remarkableSudokuScenePatchIndicator.probeAttempt <= 4
+                            || remarkableSudokuScenePatchIndicator.probeAttempt % 5 === 0) {
+                            remarkableSudokuScenePatchIndicator.captureState("poll");
+                        }
+
+                        if (!remarkableSudokuScenePatchIndicator.sceneReady
+                            && (remarkableSudokuScenePatchIndicator.hasViewport()
+                                || remarkableSudokuScenePatchIndicator.hasTileManager())) {
+                            remarkableSudokuScenePatchIndicator.sceneReady = true;
+                            remarkableSudokuScenePatchIndicator.captureState("ready");
+                        }
+
+                        if (remarkableSudokuScenePatchIndicator.strokeHandlerTarget) {
+                            remarkableSudokuScenePatchIndicator.captureState("stroke-ready");
+                            stop();
+                            return;
+                        }
+
+                        if (remarkableSudokuScenePatchIndicator.probeAttempt >= 40) {
+                            remarkableSudokuScenePatchIndicator.captureState("timeout");
+                            stop();
+                        }
+                    }
                 }
             }
         }
@@ -34,21 +458,25 @@ AFFECT /qml/device/view/navigator/Sidebar.qml
         LOCATE AFTER ALL
         INSERT {
             SidebarFilterItem {
-                id: openApps
-                objectName: "openApps"
-                title: qsTr("Apps")
+                id: openSudoku
+                objectName: "openSudoku"
+                title: qsTr("Sudoku")
                 iconSource: "qrc:/ark/icons/storage"
-                active: navigator.appsMenuView.visible
+                active: navigator.hasRemarkableSudokuDocumentOpen()
                 enabled: true
                 Layout.preferredHeight: Values.navigatorSidebarItemHeight
                 Layout.preferredWidth: parent.width
                 navigationHandler: root
 
                 onClicked: {
-                    if (navigator.appsMenuView.item) {
-                        navigator.appsMenuView.item.showAppList();
+                    if (!navigator.activateRemarkableSudokuDocument()) {
+                        navigator.startRemarkableSudokuActivation();
+
+                        if (!navigator.hasRemarkableSudokuDocumentOpen()) {
+                            navigator.openRemarkableSudokuDocument();
+                        }
                     }
-                    navigator.appsMenuView.visible = true;
+
                     root.resetFocusIndex();
                 }
 

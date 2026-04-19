@@ -11,6 +11,7 @@ remote_extension_name="${RM2_XOVI_EXTENSION_NAME:-remarkable-sudoku-xovi.so}"
 remote_extension_path="${RM2_XOVI_EXTENSION_PATH:-${remote_xovi_root}/extensions.d/${remote_extension_name}}"
 template_dir="${0:A:h:h}/xovi/${launcher_name}"
 remote_qmd_path="${remote_qtrb_dir}/${launcher_name}.qmd"
+sudoku_document_id="${RM2_SUDOKU_DOCUMENT_ID:-6f2399b2-d847-4ff4-b361-0025f566783f}"
 tmp_qmd="$(mktemp)"
 reuse_remote_extension="${RM2_XOVI_REUSE_REMOTE_EXTENSION:-0}"
 supported_xochitl_versions=(
@@ -110,7 +111,11 @@ ssh "${host}" "
   systemctl stop xochitl >/dev/null 2>&1 || true
 "
 
-sed -E "1s/^VERSION .*/VERSION ${remote_xochitl_version}/" "${template_dir}/sidebar.qmd" > "${tmp_qmd}"
+zsh "${0:A:h}/provision-sudoku-document.sh"
+
+sed -e "1s/^VERSION .*/VERSION ${remote_xochitl_version}/" \
+    -e "s/__SUDOKU_DOCUMENT_ID__/${sudoku_document_id}/g" \
+    "${template_dir}/sidebar.qmd" > "${tmp_qmd}"
 
 scp "${tmp_qmd}" "${host}:${remote_qmd_path}"
 
@@ -134,27 +139,40 @@ fi
 echo "Installed embedded Apps patch to ${host}:${remote_qmd_path}"
 echo "Applied launcher patch for xochitl ${remote_xochitl_version}"
 
+wait_for_xovi() {
+  local attempt
+
+  for attempt in {1..20}; do
+    if ssh -o ConnectTimeout=5 "${host}" "
+      systemctl is-active xochitl >/dev/null 2>&1 &&
+      pid=\$(pidof xochitl 2>/dev/null) &&
+      tr '\\0' '\\n' </proc/\${pid}/environ | grep -qx 'LD_PRELOAD=${remote_xovi_root}/xovi.so'
+    "; then
+      return 0
+    fi
+
+    sleep 2
+  done
+
+  return 1
+}
+
+start_xovi() {
+  ssh "${host}" "bash '${remote_xovi_root}/start' >/tmp/remarkable-sudoku-sidebar-install.log 2>&1"
+}
+
 echo "Restarting XOVI so the custom sidebar item appears..."
-ssh "${host}" "nohup '${remote_xovi_root}/start' >/tmp/remarkable-sudoku-sidebar-install.log 2>&1 </dev/null &"
+if ! start_xovi; then
+  echo "The first XOVI start attempt exited with an error. Retrying once..." >&2
+  sleep 2
+  start_xovi || true
+fi
 
 echo "Waiting for xochitl to come back under XOVI..."
-ready=0
-for attempt in {1..15}; do
-  if ssh -o ConnectTimeout=5 "${host}" "
-    systemctl is-active xochitl >/dev/null 2>&1 &&
-    pid=\$(pidof xochitl 2>/dev/null) &&
-    tr '\\0' '\\n' </proc/\${pid}/environ | grep -qx 'LD_PRELOAD=${remote_xovi_root}/xovi.so'
-  "; then
-    ready=1
-    break
-  fi
-
-  sleep 2
-done
-
-if [[ "${ready}" != "1" ]]; then
+if ! wait_for_xovi; then
   echo "The launcher files were installed, but xochitl did not report the expected XOVI environment in time." >&2
-  echo "Check /tmp/remarkable-sudoku-sidebar-install.log on the tablet if the Sudoku entry is still missing." >&2
+  echo "Recent XOVI start log:" >&2
+  ssh "${host}" "sed -n '1,200p' /tmp/remarkable-sudoku-sidebar-install.log" >&2 || true
   exit 1
 fi
 

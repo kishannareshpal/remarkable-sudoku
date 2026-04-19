@@ -142,6 +142,7 @@ Usage:
   ./run xovi-install [local-extension-path]
   ./run xovi-post-update [local-extension-path]
   ./run run-device [local-binary-path]
+  ./run mirror [local-injector-path]
   ./run screenshot [output-path]
   ./run stop-device
 
@@ -175,6 +176,22 @@ take_screenshot() {
   local output_path="${1:-}"
 
   ./scripts/screenshot-rm2.sh "${output_path}"
+}
+
+run_mirror() {
+  local local_injector="${1:-build/remarkable_touch_injector}"
+
+  if [[ ! -x "${local_injector}" ]]; then
+    echo "Mirror helper not found at ${local_injector}. Building it first..."
+    build_app
+  fi
+
+  if [[ ! -x "${local_injector}" ]]; then
+    echo "Mirror helper not found at ${local_injector} after build." >&2
+    exit 1
+  fi
+
+  python3 "${repo_root}/scripts/mirror-rm2.py" --injector "${local_injector}"
 }
 
 stop_device() {
@@ -215,6 +232,10 @@ main() {
     screenshot)
       shift
       take_screenshot "$@"
+      ;;
+    mirror)
+      shift
+      run_mirror "$@"
       ;;
     stop-device)
       stop_device

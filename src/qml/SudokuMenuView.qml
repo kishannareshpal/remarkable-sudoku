@@ -11,6 +11,7 @@ Item {
     property string pendingDifficultyTitle: ""
 
     signal requestClose()
+    signal requestInkDebug()
 
     readonly property real pageMargin: Math.round(Math.min(width, height) * 0.05)
     readonly property real sectionGap: Math.max(16, Math.round(pageMargin * 0.55))
@@ -68,6 +69,11 @@ Item {
 
         if (root.itemContainsScenePoint(exitButton, scenePosition)) {
             root.requestClose()
+            return
+        }
+
+        if (root.itemContainsScenePoint(inkDebugButton, scenePosition)) {
+            root.requestInkDebug()
             return
         }
 
@@ -386,6 +392,36 @@ Item {
                         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
                         enabled: !root.showingConfirmDialog
                         onTapped: root.requestClose()
+                    }
+                }
+            }
+
+            Item {
+                width: parent.width
+                height: root.exitButtonHeight
+
+                Rectangle {
+                    id: inkDebugButton
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: root.exitButtonWidth
+                    height: root.exitButtonHeight
+                    color: "transparent"
+                    border.color: "#111111"
+                    border.width: 0
+
+                    Text {
+                        anchors.centerIn: parent
+                        color: "#111111"
+                        font.bold: true
+                        font.pixelSize: Math.max(18, Math.round(parent.height * 0.36))
+                        text: "Ink Debug"
+                    }
+
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchScreen | PointerDevice.Stylus
+                        enabled: !root.showingConfirmDialog
+                        onTapped: root.requestInkDebug()
                     }
                 }
             }
